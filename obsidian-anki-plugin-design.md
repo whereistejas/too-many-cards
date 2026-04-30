@@ -23,18 +23,31 @@ Out of scope: cloze, multiple decks, multiple note types, conflict resolution be
 
 ### Per-file structure
 
-- **Filename** (without `.md`) = the **Front** field of the Anki note.
-- **Body** = the **Back** field.
+- **Body** is split into two H2 sections: `## Front` (the question) and `## Back` (the answer). Their content becomes the Anki Front and Back fields.
+- **Filename** is just an identifier — used by Obsidian for `[[wikilinks]]` and file uniqueness within a folder. It is *not* synced to Anki and may be anything the user wants. Recommended: a sanitized version of the question, but not enforced.
 - **Frontmatter** is plugin-managed; the user never types it.
 
-```yaml
+```markdown
 ---
 anki_id: 1714567890123      # absent before first sync; bigint Anki note id
 anki_mod: 1714567890        # Anki's notesInfo.mod, refreshed every successful sync
 anki_status: [suspended]    # list; only [suspended] is currently meaningful, but list-typed for future flags
 ---
-Body markdown becomes the Back field.
+
+## Front
+What is the French word for "hello"?
+
+## Back
+bonjour — used in formal and casual contexts.
 ```
+
+### Section parsing rules
+
+- Headings matched **case-insensitively** by exact text: `## Front` and `## Back` (also `## front`, `## FRONT`, etc.).
+- A section's content is everything between its `## …` heading and the next H2 heading (or EOF). Subheadings inside (`### Foo`) are part of the section content.
+- Content outside the two recognized sections (text before `## Front`, text between sections that's outside both) is ignored — useful for the user to leave inline notes that don't sync.
+- **Missing-section handling:** if either `## Front` or `## Back` is missing, the file is invalid as a card. Skip it during sync and toast a consolidated list at the end of the run (`3 card files missing Front/Back: …`).
+- **Multiple of the same section:** use the first occurrence; ignore subsequent ones silently. (Rare; not worth a toast.)
 
 ### Tags (derived, not stored)
 
@@ -70,11 +83,13 @@ We do not detect true conflicts (no last-synced anchor stored). LWW only.
 ### Status field (`anki_status`)
 
 - List-typed. Currently only `suspended` is meaningful.
-- **Asymmetric to LWW**: Obsidian's frontmatter is canonical for status; Anki's side is overwritten every sync.
-- Reasoning: Anki's note-level `mod` doesn't bump on card-level suspend changes, so LWW can't apply. Document that users should toggle suspend in Obsidian, not Anki.
-- Implementation per card after `addNote`/`updateNoteFields`:
+- **Anki is canonical, pull-only.** Every sync reads the card's current state from Anki and overwrites `anki_status` in the file's frontmatter. The plugin never pushes status to Anki — users suspend/unsuspend in Anki itself.
+- Reasoning: suspend is a study-time decision that naturally happens in Anki during review. Letting Obsidian overwrite it would erase those choices. Also, Anki's note-level `mod` doesn't bump on card-level suspend changes, so LWW can't apply — pure pull is the cleanest resolution.
+- Implementation per card on each sync:
   - `findCards({ query: "nid:<note_id>" })` → card id(s) (1 with Basic).
-  - `suspend` or `unsuspend` based on whether `suspended` ∈ `anki_status`.
+  - `areSuspended` for those card ids.
+  - Write `anki_status: [suspended]` (or omit the key) into frontmatter via `processFrontMatter`.
+- Manual edits to `anki_status` in frontmatter are overwritten on next sync. Document this — the field is informational, reflecting Anki's current state.
 
 ### Deletion (symmetric, with safety net)
 
@@ -91,9 +106,9 @@ We do not detect true conflicts (no last-synced anchor stored). LWW only.
 
 ### Duplicate handling
 
-Two card files with the same basename (= same `Front`) are duplicates because Anki's duplicate detection rejects matching front fields.
+Anki rejects notes with duplicate Front fields, so the plugin must detect this before pushing.
 
-**Detection:** before each sync, group all card files by basename (case-sensitive). Any group with >1 file is a duplicate group.
+**Detection:** before each sync, parse each card file's `## Front` section, normalize whitespace (collapse runs, trim ends), and group files by the normalized Front content (case-sensitive match — Anki itself is case-sensitive on duplicate detection). Any group with >1 file is a duplicate group.
 
 **Resolution:**
 - If exactly one file in the group has `anki_id` (already synced), it keeps syncing. Others are skipped.
@@ -101,10 +116,12 @@ Two card files with the same basename (= same `Front`) are duplicates because An
 
 **Toast (one consolidated notice per run, ~10s):**
 ```
-2 duplicate card names skipped:
-- "avoir" (Cards/French/avoir.md, Cards/Spanish/avoir.md)
-- "intro" (Cards/A/intro.md, Cards/B/intro.md)
+2 duplicate Fronts skipped:
+- "What is the French word for hello?" (Cards/French/bonjour.md, Cards/Greetings/hello-fr.md)
+- "Pythagorean theorem" (Cards/Math/pythagoras.md, Cards/Geometry/pythag.md)
 ```
+
+Truncate each Front to ~80 chars in the toast for readability.
 
 ## Markdown ↔ HTML Conversion
 
@@ -133,9 +150,11 @@ Wikilinks targeting a card file (any `[[link]]` whose resolved `TFile` is inside
 
 ### Inline form (always-visible)
 
-Default rendering for any `[[card-name]]` mid-prose. Renders as `card-name → bonjour` (filename + arrow + answer text). No reveal mechanic; the answer is always visible. Inline reveal is poor UX — don't try.
+Default rendering for any `[[card-name]]` mid-prose. The plugin parses the target card file's `## Front` and `## Back` sections and renders as `<front-text> → <back-text>` — both sides always visible. No reveal mechanic; inline reveal is poor UX — don't try.
 
-- Honor aliases: `[[card-name|alias]]` displays `alias → bonjour`.
+- Both sides are truncated for inline display (e.g., ~80 chars each, with ellipsis if cut). Full content is visible via Obsidian's native hover preview.
+- Honor aliases: `[[card-name|alias]]` displays `alias → <back-text>` (alias overrides the Front content for the rendered link text only — the Anki note is unaffected).
+- Both sides go through the same MD→inline-text conversion: strip block-level structure (paragraphs, lists), keep inline formatting (bold, italic, code) as plain text or minimal HTML. Math/images in inline display: render math via MathJax inline if practical, replace images with `[image]` placeholder.
 - Broken/unresolved links: leave as Obsidian's default unresolved-link styling. Don't try to render a card.
 
 ### Block form (callout with native folding)
@@ -148,7 +167,7 @@ Custom callout type `card`:
 > [!card] [[bonjour]]
 ```
 
-The plugin populates the callout's title (= filename) and body (= rendered card body) from the `[[link]]` on the title line. Obsidian's callout fold mechanic does the reveal:
+The plugin parses the target card file and populates the callout's title (= rendered `## Front` content) and body (= rendered `## Back` content) from the `[[link]]` on the title line. Obsidian's callout fold mechanic does the reveal:
 - `+` = expanded (answer visible).
 - `-` = collapsed (answer hidden, click chevron to reveal).
 - bare = non-foldable / default (depending on theme behavior).
@@ -188,15 +207,22 @@ The plugin populates the callout's title (= filename) and body (= rendered card 
 For each Anki note in scope:
 
 1. Check if `anki_id` appears in any current vault file's frontmatter. If yes, skip (already in vault).
-2. Sanitize the `Front` field for filename use:
-   - Strip HTML tags.
-   - Replace filesystem-illegal chars (`/\:*?"<>|`) with `_`.
+2. Derive a filename from the `Front` field (filename is just an identifier now, not synced content):
+   - Strip HTML tags from Front to get plain text.
+   - Replace filesystem-illegal chars (`/\:*?"<>|`) with `_`, collapse whitespace runs.
    - Truncate to ~120 chars.
    - On collision with an existing card filename, append `-2`, `-3`, etc.
    - Toast a summary of any non-trivial sanitizations at end of run.
 3. Write file:
-   - Filename: sanitized Front + `.md`.
-   - Body: `Back` field through `turndown`, then math/image inverse rewrites.
+   - Filename: derived above + `.md`.
+   - Body: rendered as two H2 sections, with both fields converted from HTML → markdown via `turndown` and the math/image inverse rewrites:
+     ```markdown
+     ## Front
+     <Front field, turndown'd>
+
+     ## Back
+     <Back field, turndown'd>
+     ```
    - Frontmatter: `anki_id`, `anki_mod`, `anki_status: [suspended]` if `areSuspended` returns true.
    - No tags written (they're derived from backlinks; new imports have no backlinks → no tags is correct).
 4. Skip non-Basic note types. Count and toast at end (e.g., `12 cloze notes skipped — only Basic is supported`).
@@ -268,7 +294,7 @@ On the first failed connection in a session (no AnkiConnect at all), show a noti
 - `findNotes(query)` — `tag:obsidian`, `deck:<name>`, etc.
 - `deleteNotes` — delete on Obsidian-side removal.
 - `findCards({ query: "nid:<id>" })` — card ids for a note (for suspend).
-- `suspend`, `unsuspend`, `areSuspended` — status sync.
+- `areSuspended` — status pull (Anki is canonical for status; we never call `suspend`/`unsuspend`).
 - `replaceTags` (or `updateNoteFields` with tag args, depending on AnkiConnect version) — overwrite tags from backlinks.
 - `storeMediaFile`, `retrieveMediaFile` — image transport.
 
@@ -281,8 +307,9 @@ On the first failed connection in a session (no AnkiConnect at all), show a noti
 
 The lossy parts of round-tripping (Obsidian → Anki → re-import to a fresh vault):
 
-- **Filename = Front.** A Front with `<b>bold</b>` HTML loses formatting after sanitization for filenames. Inherent to filename-as-Front; not fixable.
+- **Filenames.** Filenames are derived from a sanitized Front on import; the original Obsidian filename is not preserved (since it isn't synced to Anki). After a round-trip, the file may be named differently than before, but Front/Back content is preserved exactly.
 - **Tags.** Imported cards have no backlinks → no tags. Tags come back on next sync after the user adds the card to a topic file.
 - **`anki_mod`.** Reset on import to whatever Anki currently reports; safe.
+- **Markdown ↔ HTML.** `turndown` and `markdown-it` are not perfectly inverse. Some HTML structures (tables, certain attributes) round-trip with minor whitespace/formatting differences. Acceptable for flashcard content.
 
 These are acceptable. Document, don't fix.
