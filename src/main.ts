@@ -45,28 +45,36 @@ export default class TooManyCardsPlugin extends Plugin {
 		this.addCommand({
 			id: "copy-debug-log",
 			name: "Copy debug log",
-			callback: async () => {
-				const payload = this.getDebugLog();
-				if (!payload) {
-					this.notify("Debug log is empty.", 3000);
-					return;
-				}
-				try {
-					await navigator.clipboard.writeText(payload);
-					this.notify("Debug log copied to clipboard.", 3000);
-				} catch {
-					this.notify("Could not copy to clipboard. Check console output.", 5000, "error");
-					console.log(payload);
-				}
+			checkCallback: (checking) => {
+				if (!this.settings.debugLogging) return false;
+				if (checking) return true;
+				void (async () => {
+					const payload = this.getDebugLog();
+					if (!payload) {
+						this.notify("Debug log is empty.", 3000);
+						return;
+					}
+					try {
+						await navigator.clipboard.writeText(payload);
+						this.notify("Debug log copied to clipboard.", 3000);
+					} catch {
+						this.notify("Could not copy to clipboard. Check console output.", 5000, "error");
+						console.log(payload);
+					}
+				})();
+				return true;
 			},
 		});
 
 		this.addCommand({
 			id: "clear-debug-log",
 			name: "Clear debug log",
-			callback: () => {
+			checkCallback: (checking) => {
+				if (!this.settings.debugLogging) return false;
+				if (checking) return true;
 				this.clearDebugLog();
 				this.notify("Debug log cleared.", 2000);
+				return true;
 			},
 		});
 
