@@ -1,8 +1,108 @@
-/*
+.tmc-inline-card {
+	opacity: 0.9;
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	color: var(--text-muted);
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.callout[data-callout="card"].tmc-card-callout {
+	position: relative;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m, 10px);
+	overflow: hidden;
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-family: var(--font-text);
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+}
 
-If your plugin does not need CSS, delete this file.
+.callout[data-callout="card"].tmc-card-callout .callout-icon {
+	display: none;
+}
 
-*/
+.callout[data-callout="card"].tmc-card-callout .callout-title {
+	justify-content: center;
+	padding: var(--size-4-4, 18px) var(--size-4-5, 20px);
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.callout[data-callout="card"].tmc-card-callout .callout-title-inner {
+	width: 100%;
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-question {
+	text-align: center;
+	font-size: var(--font-text-size);
+	font-weight: var(--font-semibold, 600);
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+}
+
+.callout[data-callout="card"].tmc-card-callout .callout-content {
+	padding: var(--size-4-5, 20px) var(--size-4-5, 20px) var(--size-4-6, 24px);
+	background: var(--background-secondary);
+}
+
+.callout[data-callout="card"].tmc-card-callout .callout-title,
+.callout[data-callout="card"].tmc-card-callout .callout-content {
+	box-shadow: none;
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-actions {
+	position: absolute;
+	top: var(--size-2-3, 8px);
+	right: var(--size-2-3, 8px);
+	display: inline-flex;
+	gap: var(--size-2-1, 4px);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease;
+}
+
+.callout[data-callout="card"].tmc-card-callout:hover .tmc-card-actions,
+.callout[data-callout="card"].tmc-card-callout:focus-within .tmc-card-actions {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-action-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 999px;
+	color: var(--text-muted);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-action-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-answer {
+	text-align: center;
+	font-size: var(--font-text-size);
+	line-height: var(--line-height-normal);
+	color: var(--text-muted);
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-question > :first-child,
+.callout[data-callout="card"].tmc-card-callout .tmc-card-answer > :first-child {
+	margin-top: 0;
+}
+
+.callout[data-callout="card"].tmc-card-callout .tmc-card-question > :last-child,
+.callout[data-callout="card"].tmc-card-callout .tmc-card-answer > :last-child {
+	margin-bottom: 0;
+}
+
+.callout[data-callout="card"].tmc-card-callout.is-collapsed .callout-content,
+.callout[data-callout="card"].tmc-card-callout[data-callout-metadata*="-"] .callout-content {
+	display: none;
+}

@@ -1,99 +1,140 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import { Notice, Plugin } from "obsidian";
+import { TooManyCardsSettingTab } from "./settings";
+import { DEFAULT_SETTINGS, type PersistedData, type PluginSettings, type PluginState } from "./types";
+import { SyncService } from "./sync-service";
+import { PromptModal } from "./prompt-modal";
+import { registerReadingModeRenderers } from "./rendering";
 
-// Remember to rename these classes and interfaces!
+const DEFAULT_STATE: PluginState = {
+	inFlightSync: false,
+	lastSuccessfulSyncTs: null,
+};
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+export default class TooManyCardsPlugin extends Plugin {
+	settings: PluginSettings = { ...DEFAULT_SETTINGS };
+	state: PluginState = { ...DEFAULT_STATE };
+	syncService!: SyncService;
+	firstConnectionFailureShown = false;
+	private debugBuffer: string[] = [];
 
-	async onload() {
-		await this.loadSettings();
+	async onload(): Promise<void> {
+		await this.loadPluginData();
+		this.state.inFlightSync = false;
+		await this.savePluginData();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.syncService = new SyncService(this);
+		registerReadingModeRenderers(this);
+
+		this.addCommand({
+			id: "sync-to-anki",
+			name: "Sync to Anki",
+			callback: () => void this.syncService.enqueueSync("manual"),
 		});
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
+			id: "pull-plugin-managed-notes",
+			name: "Pull plugin-managed notes",
+			callback: () => void this.syncService.pullPluginManagedNotes(),
+		});
+
+		this.addCommand({
+			id: "create-new-card",
+			name: "Create new card",
+			callback: () => void this.syncService.createNewCard(),
+		});
+
+		this.addCommand({
+			id: "create-cards-from-callouts",
+			name: "Create cards from [!card] callouts",
+			callback: () => void this.syncService.createCardsFromCalloutsInActiveNote(),
+		});
+
+		this.addCommand({
+			id: "import-deck",
+			name: "Import deck…",
 			callback: () => {
-				new SampleModal(this.app).open();
-			}
+				new PromptModal(this.app, "Import deck", "Deck name", (deckName) => {
+					this.debug("Import deck command invoked", { deckName });
+					void this.syncService.importDeck(deckName).catch((err) => {
+						this.debug("Import deck command failed", {
+							deckName,
+							error: err instanceof Error ? err.message : String(err),
+						});
+						this.notify(`Import failed: ${err instanceof Error ? err.message : String(err)}`, 7000, "error");
+					});
+				}).open();
+			},
 		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		this.addCommand({
+			id: "copy-debug-log",
+			name: "Copy debug log",
+			callback: async () => {
+				const payload = this.getDebugLog();
+				if (!payload) {
+					this.notify("Debug log is empty.", 3000);
+					return;
 				}
-				return false;
-			}
+				try {
+					await navigator.clipboard.writeText(payload);
+					this.notify("Debug log copied to clipboard.", 3000);
+				} catch {
+					this.notify("Could not copy to clipboard. Check console output.", 5000, "error");
+					console.log(payload);
+				}
+			},
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
+		this.addCommand({
+			id: "clear-debug-log",
+			name: "Clear debug log",
+			callback: () => {
+				this.clearDebugLog();
+				this.notify("Debug log cleared.", 2000);
+			},
 		});
 
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-
+		this.addSettingTab(new TooManyCardsSettingTab(this.app, this));
 	}
 
-	onunload() {
+	async loadPluginData(): Promise<void> {
+		const data = ((await this.loadData()) as PersistedData | null) ?? {};
+		this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
+		this.state = { ...DEFAULT_STATE, ...(data.state ?? {}) };
 	}
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
+	async savePluginData(): Promise<void> {
+		await this.saveData({ settings: this.settings, state: this.state });
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
+	private appendDebugLine(message: string, data?: unknown): string {
+		const ts = new Date().toISOString();
+		const suffix = data === undefined ? "" : ` ${JSON.stringify(data)}`;
+		const line = `[TooManyCards ${ts}] ${message}${suffix}`;
+		this.debugBuffer.push(line);
+		if (this.debugBuffer.length > 500) this.debugBuffer.shift();
+		return line;
 	}
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
+	debug(message: string, data?: unknown): void {
+		const line = this.appendDebugLine(message, data);
+		if (this.settings.debugLogging) console.log(line);
+	}
+
+	notify(message: string, timeoutMs = 5000, level: "info" | "error" = "info"): Notice {
+		const line = this.appendDebugLine(`Notice(${level}): ${message}`);
+		if (this.settings.debugLogging) {
+			if (level === "error") console.error(line);
+			else console.log(line);
+		}
+		return new Notice(message, timeoutMs);
+	}
+
+	getDebugLog(): string {
+		return this.debugBuffer.join("\n");
+	}
+
+	clearDebugLog(): void {
+		this.debugBuffer = [];
 	}
 }
