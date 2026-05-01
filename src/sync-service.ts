@@ -14,12 +14,6 @@ import {
 	truncateText,
 } from "./utils";
 
-interface SyncRunResult {
-	invalidFiles: string[];
-	duplicateGroups: DuplicateGroup[];
-	failedCards: string[];
-}
-
 interface EnqueueOptions {
 	force?: boolean;
 	scope?: "all" | "obsidian-tag" | "deck";

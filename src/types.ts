@@ -26,14 +26,6 @@ export interface PersistedData {
 	state?: Partial<PluginState>;
 }
 
-export interface CardFrontmatter {
-	last_modified?: number | string;
-	anki_mod?: number | string;
-	anki_status?: string[];
-	tags?: string[];
-	aliases?: string[];
-}
-
 export interface ParsedCard {
 	front: string;
 	back: string;

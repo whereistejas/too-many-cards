@@ -1,6 +1,6 @@
 import { normalizeObsidianTag } from "./anki-tag-policy";
 
-export interface LinkerDescriptor {
+interface LinkerDescriptor {
 	basename: string;
 	title?: string | null;
 }

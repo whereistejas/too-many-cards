@@ -36,19 +36,6 @@ export function collectMarkdownFilesInFolder(vault: Vault, folderPath: string): 
 	return out;
 }
 
-export function stripHtmlTags(html: string): string {
-	return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-}
-
-export function sanitizeFilename(raw: string): string {
-	const cleaned = stripHtmlTags(raw)
-		.replace(/[\\/:*?"<>|]/g, "_")
-		.replace(/\s+/g, " ")
-		.trim();
-	const truncated = cleaned.slice(0, 120).trim();
-	return truncated.length > 0 ? truncated : "untitled-card";
-}
-
 export function simpleHash(input: string): string {
 	let hash = 0;
 	for (let i = 0; i < input.length; i++) {
