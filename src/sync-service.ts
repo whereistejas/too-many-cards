@@ -315,14 +315,38 @@ export class SyncService {
 			this.plugin.debug("Executing pull-plugin-managed import branch", {
 				remoteManagedCount: remoteManagedInfos.length,
 			});
+			const remoteIdSet = new Set(remoteManagedIds);
+			const toTrashLocally: TFile[] = [];
+			for (const record of records) {
+				if (record.ankiId !== null && !remoteIdSet.has(record.ankiId)) {
+					const f = this.plugin.app.vault.getAbstractFileByPath(record.path);
+					if (f instanceof TFile) toTrashLocally.push(f);
+				}
+			}
+
+			const abort = await this.maybeAbortForDeleteSanity(
+				toTrashLocally.length,
+				0,
+				records.length,
+				remoteManagedIds.length,
+				Boolean(options.force),
+			);
+			if (abort) {
+				this.plugin.debug("Pull aborted due to delete sanity check", {
+					toTrashLocally: toTrashLocally.length,
+				});
+				return false;
+			}
+			for (const file of toTrashLocally) await this.plugin.app.vault.trash(file, false);
+			const deleted = toTrashLocally.length;
+
 			const { basic, skippedNonBasic } = splitBasicNotes(remoteManagedInfos);
 			const importResult = await this.importNoteInfosIntoVault(anki, converter, basic, {
 				tagAsObsidian: false,
 				sourceLabel: "pull-plugin-managed",
 			});
-			const updatedSuffix = importResult.updated > 0 ? ` (${importResult.updated} updated)` : "";
 			this.plugin.notify(
-				`Pulled ${importResult.imported + importResult.updated} plugin-managed notes from Anki${updatedSuffix}.`,
+				`Pulled from Anki: ${importResult.imported} imported, ${importResult.updated} updated, ${deleted} deleted.`,
 				5000,
 			);
 			if (skippedNonBasic > 0) {

@@ -122,3 +122,84 @@ test("integration: pull overwrites local card when Anki note has newer mod", asy
 		"second pull should not retain stale v1 content",
 	);
 });
+
+test("integration: pull deletes local card when Anki note no longer exists", async (t) => {
+	const anki = new AnkiConnectClient(ANKI_URL);
+	if (!(await isAnkiReachable(anki))) {
+		t.skip(`AnkiConnect not reachable at ${ANKI_URL}`);
+		return;
+	}
+	const cleanup = registerAnkiTestCleanup(t, anki);
+
+	const suffix = makeSuffix();
+	const deckName = `TMC IT PullDelete ${suffix}`;
+	cleanup.trackDeck(deckName);
+	await anki.invoke("createDeck", { deck: deckName });
+
+	const noteTag = `tmc_it_pull_delete_${suffix}`;
+	cleanup.trackTag(noteTag);
+	cleanup.trackTag(SYNC_TAG);
+
+	// Create four notes so the orphan-ratio sanity check (>25%) doesn't abort
+	// after one is deleted (1/4 = 25%, not greater).
+	const ids: number[] = [];
+	for (let i = 0; i < 4; i++) {
+		const id = await anki.invoke<number>("addNote", {
+			note: {
+				deckName,
+				modelName: "Basic",
+				fields: { Front: `pull-delete-${suffix}-${i}`, Back: `back ${i}` },
+				tags: [SYNC_TAG, noteTag],
+				options: { allowDuplicate: true },
+			},
+		});
+		cleanup.trackNote(id);
+		ids.push(id);
+	}
+
+	const settings: PluginSettings = {
+		...DEFAULT_SETTINGS,
+		ankiConnectUrl: ANKI_URL,
+		deckName,
+		syncTag: SYNC_TAG,
+		cardsFolder: "Cards",
+		mediaFolder: "Cards/_media",
+	};
+	const { plugin, vault } = makeFakePlugin(settings);
+	const sync = new SyncService(plugin as unknown as TooManyCardsPlugin);
+
+	await sync.pullPluginManagedNotes();
+
+	for (const id of ids) {
+		assert.ok(vault.getFileContent(`Cards/${id}.md`), `expected vault file for note ${id}`);
+	}
+
+	// Delete one note in Anki, then pull again.
+	const deletedId = ids[0]!;
+	await anki.invoke("deleteNotes", { notes: [deletedId] });
+
+	await sync.pullPluginManagedNotes();
+
+	assert.equal(
+		vault.getFileContent(`Cards/${deletedId}.md`),
+		null,
+		"expected vault file to be removed after pull when Anki note is gone",
+	);
+	for (const id of ids.slice(1)) {
+		assert.ok(
+			vault.getFileContent(`Cards/${id}.md`),
+			`expected remaining vault file for note ${id} to be untouched`,
+		);
+	}
+
+	const summaries = plugin.notifications.filter((n) =>
+		n.message.startsWith("Pulled from Anki:"),
+	);
+	const lastSummary = summaries[summaries.length - 1];
+	assert.ok(lastSummary, "expected a 'Pulled from Anki' summary notification");
+	assert.match(
+		lastSummary.message,
+		/1 deleted/,
+		`summary should report 1 deleted (got: ${lastSummary.message})`,
+	);
+});
