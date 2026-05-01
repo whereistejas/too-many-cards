@@ -3,7 +3,6 @@ export interface PluginSettings {
 	deckName: string;
 	ankiConnectUrl: string;
 	mediaFolder: string;
-	saveDebounceMs: number;
 	debugLogging: boolean;
 	syncTag: string;
 }
@@ -13,7 +12,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	deckName: "Default",
 	ankiConnectUrl: "http://localhost:8765",
 	mediaFolder: "Cards/_media",
-	saveDebounceMs: 1500,
 	debugLogging: false,
 	syncTag: "obsidian",
 };

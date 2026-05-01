@@ -24,6 +24,7 @@ interface EnqueueOptions {
 	force?: boolean;
 	scope?: "all" | "obsidian-tag" | "deck";
 	deckName?: string;
+	chainPullAfter?: boolean;
 }
 
 export class SyncService {
@@ -49,6 +50,10 @@ export class SyncService {
 			if (completed) {
 				this.plugin.state.lastSuccessfulSyncTs = Math.floor(Date.now() / 1000);
 				this.plugin.debug("Sync completed", { reason, lastSuccessfulSyncTs: this.plugin.state.lastSuccessfulSyncTs });
+				if (options.chainPullAfter) {
+					this.plugin.debug("Chaining pull after sync", { reason });
+					await this.runSync(`${reason}:chained-pull`, { scope: "obsidian-tag" });
+				}
 			} else {
 				this.plugin.debug("Sync ended early", { reason });
 			}
@@ -687,31 +692,6 @@ export class SyncService {
 		} else {
 			this.plugin.notify("No cards were created from callouts.", 4000, "error");
 		}
-	}
-
-	async createNewCard(): Promise<void> {
-		await this.ensureCardsFolder();
-		const base = `card-${Date.now()}`;
-		let target = normalizePath(`${this.plugin.settings.cardsFolder}/${base}.md`);
-		let i = 2;
-		while (this.plugin.app.vault.getAbstractFileByPath(target)) {
-			target = normalizePath(`${this.plugin.settings.cardsFolder}/${base}-${i}.md`);
-			i += 1;
-		}
-		const managedTags = this.getManagedTags([]);
-		const content = [
-			"---",
-			...(managedTags.length > 0 ? ["tags:", ...managedTags.map((tag) => `  - \"${this.escapeYamlDoubleQuoted(tag)}\"`)] : []),
-			"---",
-			"",
-			"## Front",
-			"",
-			"## Back",
-			"",
-		].join("\n");
-		const file = await this.plugin.app.vault.create(target, content);
-		await this.plugin.app.workspace.getLeaf(true).openFile(file);
-		this.plugin.notify(`Created new card: ${file.basename}`, 3000);
 	}
 
 	async importDeck(deckName: string): Promise<void> {

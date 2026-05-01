@@ -59,18 +59,6 @@ export class TooManyCardsSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
-			.setName("Save debounce (ms)")
-			.setDesc("Delay before syncing after card-file saves.")
-			.addText((text) =>
-				text.setValue(String(this.plugin.settings.saveDebounceMs)).onChange(async (value) => {
-					const parsed = Number.parseInt(value, 10);
-					if (!Number.isFinite(parsed) || parsed < 0) return;
-					this.plugin.settings.saveDebounceMs = parsed;
-					await this.plugin.savePluginData();
-				})
-			);
-
-		new Setting(containerEl)
 			.setName("Debug logging")
 			.setDesc("Log detailed sync flow to console and in-memory debug buffer.")
 			.addToggle((toggle) =>
@@ -88,6 +76,51 @@ export class TooManyCardsSettingTab extends PluginSettingTab {
 					this.plugin.settings.syncTag = value.trim() || "obsidian";
 					await this.plugin.savePluginData();
 				})
+			);
+
+		new Setting(containerEl).setName("Import").setHeading();
+
+		let importDeckName = "";
+		let importing = false;
+		new Setting(containerEl)
+			.setName("Import deck")
+			.setDesc("One-shot import of an existing Anki deck. Tags imported notes as plugin-managed.")
+			.addText((text) =>
+				text.setPlaceholder("Deck name").onChange((value) => {
+					importDeckName = value.trim();
+				})
+			)
+			.addButton((button) =>
+				button
+					.setButtonText("Import")
+					.setCta()
+					.onClick(async () => {
+						const deckName = importDeckName;
+						if (!deckName) {
+							this.plugin.notify("Enter a deck name to import.", 4000, "error");
+							return;
+						}
+						if (importing) return;
+						importing = true;
+						button.setDisabled(true).setButtonText("Importing…");
+						try {
+							this.plugin.debug("Import deck triggered from settings", { deckName });
+							await this.plugin.syncService.importDeck(deckName);
+						} catch (err) {
+							this.plugin.debug("Import deck from settings failed", {
+								deckName,
+								error: err instanceof Error ? err.message : String(err),
+							});
+							this.plugin.notify(
+								`Import failed: ${err instanceof Error ? err.message : String(err)}`,
+								7000,
+								"error",
+							);
+						} finally {
+							importing = false;
+							button.setDisabled(false).setButtonText("Import");
+						}
+					})
 			);
 	}
 }

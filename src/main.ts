@@ -2,7 +2,6 @@ import { Notice, Plugin } from "obsidian";
 import { TooManyCardsSettingTab } from "./settings";
 import { DEFAULT_SETTINGS, type PersistedData, type PluginSettings, type PluginState } from "./types";
 import { SyncService } from "./sync-service";
-import { PromptModal } from "./prompt-modal";
 import { registerReadingModeRenderers } from "./rendering";
 
 const DEFAULT_STATE: PluginState = {
@@ -27,43 +26,20 @@ export default class TooManyCardsPlugin extends Plugin {
 
 		this.addCommand({
 			id: "sync-to-anki",
-			name: "Sync to Anki",
-			callback: () => void this.syncService.enqueueSync("manual"),
+			name: "Push to Anki",
+			callback: () => void this.syncService.enqueueSync("manual", { chainPullAfter: true }),
 		});
 
 		this.addCommand({
 			id: "pull-plugin-managed-notes",
-			name: "Pull plugin-managed notes",
+			name: "Pull from Anki",
 			callback: () => void this.syncService.pullPluginManagedNotes(),
 		});
 
 		this.addCommand({
-			id: "create-new-card",
-			name: "Create new card",
-			callback: () => void this.syncService.createNewCard(),
-		});
-
-		this.addCommand({
 			id: "create-cards-from-callouts",
-			name: "Create cards from [!card] callouts",
+			name: "Create cards in current note",
 			callback: () => void this.syncService.createCardsFromCalloutsInActiveNote(),
-		});
-
-		this.addCommand({
-			id: "import-deck",
-			name: "Import deck…",
-			callback: () => {
-				new PromptModal(this.app, "Import deck", "Deck name", (deckName) => {
-					this.debug("Import deck command invoked", { deckName });
-					void this.syncService.importDeck(deckName).catch((err) => {
-						this.debug("Import deck command failed", {
-							deckName,
-							error: err instanceof Error ? err.message : String(err),
-						});
-						this.notify(`Import failed: ${err instanceof Error ? err.message : String(err)}`, 7000, "error");
-					});
-				}).open();
-			},
 		});
 
 		this.addCommand({
