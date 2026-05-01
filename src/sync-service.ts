@@ -320,7 +320,11 @@ export class SyncService {
 				tagAsObsidian: false,
 				sourceLabel: "pull-plugin-managed",
 			});
-			this.plugin.notify(`Pulled ${importResult.imported} plugin-managed notes from Anki.`, 5000);
+			const updatedSuffix = importResult.updated > 0 ? ` (${importResult.updated} updated)` : "";
+			this.plugin.notify(
+				`Pulled ${importResult.imported + importResult.updated} plugin-managed notes from Anki${updatedSuffix}.`,
+				5000,
+			);
 			if (skippedNonBasic > 0) {
 				this.plugin.notify(`${skippedNonBasic} non-Basic notes skipped during pull.`, 8000, "error");
 			}
@@ -496,18 +500,39 @@ export class SyncService {
 		await this.enqueueSync("pull-plugin-managed", { scope: "obsidian-tag" });
 	}
 
-	private getExistingAnkiIdsInVault(): Set<number> {
-		const existing = new Set<number>();
+	private getExistingAnkiNotesInVault(): Map<number, { file: TFile; ankiMod: number | null }> {
+		const out = new Map<number, { file: TFile; ankiMod: number | null }>();
 		for (const file of collectMarkdownFilesInFolder(this.plugin.app.vault, this.plugin.settings.cardsFolder)) {
-			const byName = this.parseNoteIdFromFile(file);
-			if (byName !== null) {
-				existing.add(byName);
-				continue;
-			}
 			const fm = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
-			if (typeof fm?.anki_id === "number") existing.add(fm.anki_id);
+			const ankiId = this.parseNoteIdFromFile(file) ?? (typeof fm?.anki_id === "number" ? fm.anki_id : null);
+			if (ankiId === null || out.has(ankiId)) continue;
+			const ankiMod = this.parseStoredAnkiMod(fm?.last_modified ?? fm?.anki_mod);
+			out.set(ankiId, { file, ankiMod });
 		}
-		return existing;
+		return out;
+	}
+
+	private async composePulledCardBody(
+		info: AnkiNoteInfo,
+		converter: CardConverter,
+		anki: AnkiConnectClient,
+	): Promise<string> {
+		const frontMd = await converter.ankiHtmlToMarkdown(info.fields.Front?.value ?? "");
+		const backMd = await converter.ankiHtmlToMarkdown(info.fields.Back?.value ?? "");
+		const status = await getAnkiStatusForNote(anki, info.noteId);
+		const managedTags = this.getManagedTags(info.tags);
+		const frontmatter = [
+			"---",
+			`last_modified: "${this.formatAnkiModForFrontmatter(info.mod)}"`,
+			"aliases:",
+			`  - "${this.escapeYamlDoubleQuoted(this.normalizeAlias(frontMd))}"`,
+			`back: "${this.escapeYamlDoubleQuoted(this.normalizeBack(backMd))}"`,
+			...(managedTags.length > 0 ? ["tags:", ...managedTags.map((tag) => `  - \"${this.escapeYamlDoubleQuoted(tag)}\"`)] : []),
+			...(status.includes("suspended") ? ["anki_status:", "  - suspended"] : []),
+			"---",
+			"",
+		].join("\n");
+		return `${frontmatter}## Front\n${frontMd}\n\n## Back\n${backMd}\n`;
 	}
 
 	private async importNoteInfosIntoVault(
@@ -515,10 +540,11 @@ export class SyncService {
 		converter: CardConverter,
 		infos: AnkiNoteInfo[],
 		options: { tagAsObsidian: boolean; sourceLabel: string },
-	): Promise<{ imported: number; skippedExisting: number; failures: number }> {
+	): Promise<{ imported: number; updated: number; skippedExisting: number; failures: number }> {
 		await this.ensureCardsFolder();
-		const existing = this.getExistingAnkiIdsInVault();
+		const existing = this.getExistingAnkiNotesInVault();
 		let imported = 0;
+		let updated = 0;
 		let skippedExisting = 0;
 		let failures = 0;
 		const importedIds: number[] = [];
@@ -531,39 +557,33 @@ export class SyncService {
 
 		for (const info of infos) {
 			try {
-				if (existing.has(info.noteId)) {
-					skippedExisting += 1;
+				if (info.modelName !== "Basic") continue;
+				const local = existing.get(info.noteId);
+				if (local) {
+					if (local.ankiMod !== null && local.ankiMod >= info.mod) {
+						skippedExisting += 1;
+						continue;
+					}
+					const body = await this.composePulledCardBody(info, converter, anki);
+					await this.plugin.app.vault.modify(local.file, body);
+					existing.set(info.noteId, { file: local.file, ankiMod: info.mod });
+					updated += 1;
 					continue;
 				}
-				if (info.modelName !== "Basic") continue;
-				const frontMd = await converter.ankiHtmlToMarkdown(info.fields.Front?.value ?? "");
-				const backMd = await converter.ankiHtmlToMarkdown(info.fields.Back?.value ?? "");
 				const target = normalizePath(`${this.plugin.settings.cardsFolder}/${info.noteId}.md`);
 				const existingTarget = this.plugin.app.vault.getAbstractFileByPath(target);
 				if (existingTarget && !(existingTarget instanceof TFile)) {
 					throw new Error(`Target path exists and is not a file: ${target}`);
 				}
 				if (existingTarget instanceof TFile) {
+					// File at target path but no recognised anki_id — leave it alone.
 					skippedExisting += 1;
 					continue;
 				}
-				const status = await getAnkiStatusForNote(anki, info.noteId);
-				const managedTags = this.getManagedTags(info.tags);
-				const frontmatter = [
-					"---",
-					`last_modified: "${this.formatAnkiModForFrontmatter(info.mod)}"`,
-					"aliases:",
-					`  - "${this.escapeYamlDoubleQuoted(this.normalizeAlias(frontMd))}"`,
-					`back: "${this.escapeYamlDoubleQuoted(this.normalizeBack(backMd))}"`,
-					...(managedTags.length > 0 ? ["tags:", ...managedTags.map((tag) => `  - \"${this.escapeYamlDoubleQuoted(tag)}\"`)] : []),
-					...(status.includes("suspended") ? ["anki_status:", "  - suspended"] : []),
-					"---",
-					"",
-				].join("\n");
-				const body = `${frontmatter}## Front\n${frontMd}\n\n## Back\n${backMd}\n`;
-				await this.plugin.app.vault.create(target, body);
+				const body = await this.composePulledCardBody(info, converter, anki);
+				const created = await this.plugin.app.vault.create(target, body);
 				if (options.tagAsObsidian) importedIds.push(info.noteId);
-				existing.add(info.noteId);
+				existing.set(info.noteId, { file: created, ankiMod: info.mod });
 				imported += 1;
 			} catch (err) {
 				failures += 1;
@@ -582,10 +602,11 @@ export class SyncService {
 		this.plugin.debug("Import note infos complete", {
 			source: options.sourceLabel,
 			imported,
+			updated,
 			skippedExisting,
 			failures,
 		});
-		return { imported, skippedExisting, failures };
+		return { imported, updated, skippedExisting, failures };
 	}
 
 	private async createCardInAnkiAndVault(front: string, back: string, sourcePath: string): Promise<number> {
@@ -703,7 +724,11 @@ export class SyncService {
 
 		if (skippedNonBasic > 0) this.plugin.notify(`${skippedNonBasic} non-Basic notes skipped — only Basic is supported.`, 8000, "error");
 		if (result.failures > 0) this.plugin.notify(`Import finished with ${result.failures} failures. Check debug log.`, 8000, "error");
-		this.plugin.notify(`Imported ${result.imported} notes from deck \"${deckName}\".`, 5000);
+		const updatedSuffix = result.updated > 0 ? ` (${result.updated} updated)` : "";
+		this.plugin.notify(
+			`Imported ${result.imported + result.updated} notes from deck \"${deckName}\"${updatedSuffix}.`,
+			5000,
+		);
 		this.plugin.debug("Deck import complete", { deckName, skippedNonBasic, ...result });
 	}
 
