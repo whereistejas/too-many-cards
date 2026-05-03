@@ -7,7 +7,7 @@ interface LinkerDescriptor {
 
 export function tagFromLinker(linker: LinkerDescriptor): string {
 	const preferred = linker.title && linker.title.trim().length > 0 ? linker.title : linker.basename;
-	return normalizeObsidianTag(preferred);
+	return `obsidian/${normalizeObsidianTag(preferred)}`;
 }
 
 export function buildManagedTags(syncTag: string, incomingLinkTags: string[], existingTags: string[] = []): string[] {
