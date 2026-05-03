@@ -5,5 +5,5 @@
 	"minAppVersion": "1.5.0",
 	"description": "Sync markdown card files in your vault with Anki Basic notes via AnkiConnect.",
 	"author": "whereistejas",
-	"isDesktopOnly": true
+	"isDesktopOnly": false
 }
