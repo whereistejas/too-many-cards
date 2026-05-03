@@ -16,6 +16,8 @@
 	font-family: var(--font-text);
 	font-size: var(--font-text-size);
 	line-height: var(--line-height-normal);
+	/* Let vertical scroll pass through to the page on mobile */
+	touch-action: pan-y;
 }
 
 .callout[data-callout="card"].tmc-card-callout .callout-icon {
