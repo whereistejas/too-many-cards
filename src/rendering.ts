@@ -70,7 +70,7 @@ function renderCalloutActions(plugin: TooManyCardsPlugin, callout: Element, targ
 }
 
 async function renderCardCallouts(plugin: TooManyCardsPlugin, root: HTMLElement, ctx: MarkdownPostProcessorContext): Promise<void> {
-	const callouts = Array.from(root.querySelectorAll("div.callout[data-callout='card']"));
+	const callouts = Array.from(root.querySelectorAll<HTMLElement>("div.callout[data-callout='card']"));
 	for (const callout of callouts) {
 		const title = callout.querySelector(".callout-title");
 		if (!(title instanceof HTMLElement)) continue;

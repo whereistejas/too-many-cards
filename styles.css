@@ -16,8 +16,6 @@
 	font-family: var(--font-text);
 	font-size: var(--font-text-size);
 	line-height: var(--line-height-normal);
-	/* Let vertical scroll pass through to the page on mobile */
-	touch-action: pan-y;
 }
 
 .callout[data-callout="card"].tmc-card-callout .callout-icon {
@@ -68,6 +66,13 @@
 .callout[data-callout="card"].tmc-card-callout:focus-within .tmc-card-actions {
 	opacity: 1;
 	pointer-events: auto;
+}
+
+@media (hover: none), (pointer: coarse) {
+	.callout[data-callout="card"].tmc-card-callout .tmc-card-actions {
+		opacity: 1;
+		pointer-events: auto;
+	}
 }
 
 .callout[data-callout="card"].tmc-card-callout .tmc-card-action-btn {
