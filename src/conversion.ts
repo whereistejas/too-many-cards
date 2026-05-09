@@ -1,11 +1,18 @@
 import { App, normalizePath, TFile } from "obsidian";
 import MarkdownIt from "markdown-it";
+import mathjax from "markdown-it-mathjax";
 import TurndownService from "turndown";
 import { AnkiConnectClient } from "./anki-connect";
 import { arrayBufferToBase64, base64ToArrayBuffer, simpleHash } from "./utils";
 
+export function fromAnkiMath(markdown: string): string {
+	return markdown
+		.replace(/\\\[([\s\S]+?)\\\]/g, (_, body: string) => `$$${body}$$`)
+		.replace(/\\\(([^\n]+?)\\\)/g, (_, body: string) => `$${body}$`);
+}
+
 export class CardConverter {
-	private readonly md = new MarkdownIt();
+	private readonly md = new MarkdownIt().use(mathjax());
 	private readonly turndown = new TurndownService();
 
 	constructor(
@@ -13,18 +20,6 @@ export class CardConverter {
 		private readonly anki: AnkiConnectClient,
 		private readonly mediaFolder: string,
 	) {}
-
-	private toAnkiMath(markdown: string): string {
-		return markdown
-			.replace(/\$\$([\s\S]+?)\$\$/g, "\\[$1\\]")
-			.replace(/\$([^$\n]+?)\$/g, "\\($1\\)");
-	}
-
-	private fromAnkiMath(markdown: string): string {
-		return markdown
-			.replace(/\\\[([\s\S]+?)\\\]/g, "$$$1$$")
-			.replace(/\\\(([^\n]+?)\\\)/g, "$$1$");
-	}
 
 	private async resolveAndUploadMarkdownImages(markdown: string, sourcePath: string): Promise<string> {
 		let rewritten = markdown;
@@ -56,7 +51,7 @@ export class CardConverter {
 
 	async markdownToAnkiHtml(markdown: string, sourcePath: string): Promise<string> {
 		const withMedia = await this.resolveAndUploadMarkdownImages(markdown, sourcePath);
-		return this.md.render(this.toAnkiMath(withMedia));
+		return this.md.render(withMedia);
 	}
 
 	private async ensureMediaFolderExists(): Promise<void> {
@@ -86,6 +81,6 @@ export class CardConverter {
 	async ankiHtmlToMarkdown(html: string): Promise<string> {
 		await this.pullAnkiImages(html);
 		const markdown = this.turndown.turndown(html).replace(/!\[[^\]]*\]\(([^)]+)\)/g, "![[${'$1'}]]");
-		return this.fromAnkiMath(markdown);
+		return fromAnkiMath(markdown);
 	}
 }
